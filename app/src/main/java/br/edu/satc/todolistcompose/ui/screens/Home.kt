@@ -2,9 +2,12 @@
 
 package br.edu.satc.todolistcompose.ui.screens
 
+import android.app.Application
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -21,6 +24,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -34,24 +38,49 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.toMutableStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import br.edu.satc.todolistcompose.TaskData
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
+import androidx.room.Room
+import br.edu.satc.todolistcompose.storage.AppDatabase
+import br.edu.satc.todolistcompose.storage.PreferencesViewModel
+import br.edu.satc.todolistcompose.storage.Task
+import br.edu.satc.todolistcompose.storage.TaskDao
+import br.edu.satc.todolistcompose.storage.ThemeMode
 import br.edu.satc.todolistcompose.ui.components.TaskCard
 import kotlinx.coroutines.launch
-
 
 @Preview(showBackground = true)
 @Composable
 fun HomeScreen() {
+    val context = LocalContext.current
+    val application = context.applicationContext as Application
+    val viewModel: PreferencesViewModel = viewModel(
+        factory = object : ViewModelProvider.Factory {
+            @Suppress("UNCHECKED_CAST")
+            override fun <T : ViewModel> create(modelClass: Class<T>): T {
+                return PreferencesViewModel(application = application) as T
+            }
+        }
+    )
 
     // states by remember
     // Guardam valores importantes de controle em nossa home
     var showBottomSheet by remember { mutableStateOf(false) }
+    var showThemeSwitcher by remember { mutableStateOf(false) }
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior(rememberTopAppBarState())
+
+    val db = Room.databaseBuilder(context, AppDatabase::class.java, "task_database")
+        .allowMainThreadQueries()
+        .build();
+    val taskDao = db.taskDao();
+    var tasks: MutableList<Task> = taskDao.getAll().toMutableList()
 
     /**
      * O componente Scaffold facilita a construção de telas seguindo as guidelines
@@ -82,7 +111,9 @@ fun HomeScreen() {
                      * Este é o botão de Settings que aparece no canto direito da TopBar
                      * Podemos usar ele para acessar alguma configuração do App.
                      * * */
-                    IconButton(onClick = { /* do something */ }) {
+                    IconButton(onClick = {
+                        showThemeSwitcher = true
+                    }) {
                         Icon(
                             Icons.Rounded.Settings,
                             contentDescription = ""
@@ -119,20 +150,20 @@ fun HomeScreen() {
          * O que aparece no "meio".
          * Para ficar mais organizado, montei o conteúdo em functions separadas.
          * */
-        HomeContent(innerPadding)
-        NewTask(showBottomSheet = showBottomSheet) { showBottomSheet = false }
-
+        if (showThemeSwitcher) {
+            ThemeSwitcherScreen(onBack = { showThemeSwitcher = false }, viewModel = viewModel)
+        } else {
+            HomeContent(innerPadding, tasks, taskDao)
+            NewTask(showBottomSheet = showBottomSheet, taskDao = taskDao) {
+                showBottomSheet = false;
+                tasks = taskDao.getAll().toMutableStateList()
+            }
+        }
     }
 }
 
 @Composable
-fun HomeContent(innerPadding: PaddingValues) {
-
-    val tasks = mutableListOf<TaskData>()
-    for (i in 0..5) {
-        tasks.add(TaskData("Tarefa " + i, "Descricao " + i, i % 2 == 0))
-    }
-
+fun HomeContent(innerPadding: PaddingValues, tasks: MutableList<Task>, taskDao: TaskDao) {
     /**
      * Aqui simplesmente temos uma Column com o nosso conteúdo.
      * A chamada verticalScroll(rememberScrollState()), passada para o Modifier,
@@ -152,7 +183,7 @@ fun HomeContent(innerPadding: PaddingValues) {
         verticalArrangement = Arrangement.Top
     ) {
         for (task in tasks) {
-            TaskCard(task.title, task.description, task.complete)
+            TaskCard(task, taskDao)
         }
     }
 }
@@ -162,7 +193,7 @@ fun HomeContent(innerPadding: PaddingValues) {
  * Aqui podemos "cadastrar uma nova Task".
  */
 @Composable
-fun NewTask(showBottomSheet: Boolean, onComplete: () -> Unit) {
+fun NewTask(showBottomSheet: Boolean, taskDao: TaskDao, onComplete: () -> Unit) {
     val sheetState = rememberModalBottomSheetState()
     val scope = rememberCoroutineScope()
     var taskTitle by remember {
@@ -197,6 +228,8 @@ fun NewTask(showBottomSheet: Boolean, onComplete: () -> Unit) {
                     onValueChange = {taskDescription = it},
                     label = { Text(text = "Descrição da tarefa") })
                 Button(modifier = Modifier.padding(top = 4.dp), onClick = {
+                    var t = Task(taskTitle = taskTitle, taskDescription = taskDescription, taskComplete = false)
+                    taskDao.insert(t)
                     scope.launch { sheetState.hide() }.invokeOnCompletion {
                         if (!sheetState.isVisible) {
                             onComplete()
@@ -208,4 +241,30 @@ fun NewTask(showBottomSheet: Boolean, onComplete: () -> Unit) {
             }
         }
     }
+}
+
+@Composable
+fun ThemeSwitcherScreen(viewModel: PreferencesViewModel, onBack: () -> Unit) {
+    val themeMode by viewModel.themeMode
+
+    Column(
+        Modifier.fillMaxSize().padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Text("Select Theme:")
+
+        ThemeMode.values().forEach { mode ->
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                RadioButton(
+                    selected = themeMode == mode,
+                    onClick = { viewModel.setThemeMode(mode) }
+                )
+                Text(mode.name.lowercase().replaceFirstChar { it.uppercase() })
+            }
+        }
+        Button(onClick = onBack) {
+            Text("Back")
+        }
+    }
+
 }

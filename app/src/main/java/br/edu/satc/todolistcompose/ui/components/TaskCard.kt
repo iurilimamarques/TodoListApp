@@ -6,7 +6,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ElevatedCard
@@ -21,25 +20,27 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import br.edu.satc.todolistcompose.ui.theme.ToDoListComposeTheme
+import br.edu.satc.todolistcompose.storage.Task
+import br.edu.satc.todolistcompose.storage.TaskDao
 
 @Composable
 fun TaskCard(
-    title: String = "Task title",
-    description: String = "Task description",
-    complete: Boolean = false
+    task: Task,
+    taskDao: TaskDao
 ) {
+    val taskId by remember {
+        mutableStateOf(task.uid)
+    }
     val taskTitle by remember {
-        mutableStateOf(title)
+        mutableStateOf(task.taskTitle)
     }
     val taskDescription by remember {
-        mutableStateOf(description)
+        mutableStateOf(task.taskDescription)
     }
     var taskComplete by remember {
-        mutableStateOf(complete)
+        mutableStateOf(task.taskComplete)
     }
 
     ElevatedCard(
@@ -64,17 +65,13 @@ fun TaskCard(
                         fontFamily = FontFamily.Serif
                     )
                 )
-                Checkbox(checked = taskComplete, onCheckedChange = { taskComplete = it })
+                Checkbox(checked = taskComplete, onCheckedChange = {
+                    taskComplete = it;
+                    var changedTask = Task(uid = taskId, taskComplete = taskComplete, taskTitle = taskTitle, taskDescription = taskDescription)
+                    taskDao.update(changedTask)
+                })
             }
             Text(text = taskDescription, fontSize = 12.sp)
         }
-    }
-}
-
-@Preview(showBackground = true)
-@Composable
-fun TaskCardPreview() {
-    ToDoListComposeTheme {
-        TaskCard()
     }
 }
